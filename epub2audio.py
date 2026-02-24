@@ -88,10 +88,15 @@ async def tts_chunk(text, voice, rate, output_path):
     await communicate.save(output_path)
 
 
-async def convert_chapter(chapter_num, title, text, voice, rate, output_dir):
+def pad_width(total):
+    """Return the number of digits needed to represent total."""
+    return len(str(total))
+
+
+async def convert_chapter(chapter_num, title, text, voice, rate, output_dir, chapter_pad):
     """Convert a full chapter to MP3, chunking if needed."""
     safe_title = re.sub(r"[^\w\s-]", "", title)[:50].strip()
-    filename = f"{chapter_num:02d}_{safe_title}.mp3"
+    filename = f"{str(chapter_num).zfill(chapter_pad)}_{safe_title}.mp3"
     chapter_path = output_dir / filename
     if chapter_path.exists():
         print(f"  Skipping (exists): {filename}")
@@ -102,11 +107,12 @@ async def convert_chapter(chapter_num, title, text, voice, rate, output_dir):
     if len(chunks) == 1:
         await tts_chunk(chunks[0], voice, rate, str(chapter_path))
     else:
+        chunk_pad = pad_width(len(chunks))
         tmp_dir = output_dir / "_tmp"
         tmp_dir.mkdir(exist_ok=True)
         chunk_paths = []
         for i, chunk in enumerate(chunks):
-            tmp_path = tmp_dir / f"ch{chapter_num:02d}_chunk{i:03d}.mp3"
+            tmp_path = tmp_dir / f"ch{str(chapter_num).zfill(chapter_pad)}_chunk{str(i).zfill(chunk_pad)}.mp3"
             await tts_chunk(chunk, voice, rate, str(tmp_path))
             chunk_paths.append(tmp_path)
         concat_mp3s(chunk_paths, chapter_path)
@@ -140,10 +146,11 @@ async def main():
     print(f"Found {len(chapters)} chapters")
     print(f"Voice: {args.voice} | Rate: {args.rate}")
     print(f"Output: {output_dir}\n")
+    chapter_pad = pad_width(len(chapters))
     chapter_paths = []
     for i, (title, text) in enumerate(chapters, 1):
         print(f"[{i}/{len(chapters)}] {title}")
-        path = await convert_chapter(i, title, text, args.voice, args.rate, output_dir)
+        path = await convert_chapter(i, title, text, args.voice, args.rate, output_dir, chapter_pad)
         if path:
             chapter_paths.append(path)
     if not args.no_merge and len(chapter_paths) > 1:
