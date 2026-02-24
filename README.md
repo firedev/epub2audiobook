@@ -7,7 +7,7 @@ Designed for Russian-language books but works with any language supported by Edg
 ## Install
 
 ```bash
-git clone https://github.com/nicksavov/epub2audiobook.git
+git clone https://github.com/firedev/epub2audiobook.git
 cd epub2audiobook
 pip install -r requirements.txt
 brew install ffmpeg  # macOS — required for merging chapters
