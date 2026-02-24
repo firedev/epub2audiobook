@@ -71,13 +71,17 @@ def concat_mp3s(input_paths, output_path):
     """Concatenate MP3 files using ffmpeg."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         for path in input_paths:
-            f.write(f"file '{path}'\n")
+            escaped = str(Path(path).resolve()).replace("'", "'\\''")
+            f.write(f"file '{escaped}'\n")
         list_file = f.name
     try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", str(output_path)],
-            capture_output=True, check=True,
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", str(Path(output_path).resolve())],
+            capture_output=True,
         )
+        if result.returncode != 0:
+            print(f"  ffmpeg error: {result.stderr.decode(errors='replace')[-500:]}")
+            result.check_returncode()
     finally:
         Path(list_file).unlink()
 
@@ -96,7 +100,8 @@ def pad_width(total):
 async def convert_chapter(chapter_num, title, text, voice, rate, output_dir, chapter_pad):
     """Convert a full chapter to MP3, chunking if needed."""
     safe_title = re.sub(r"[^\w\s-]", "", title)[:50].strip()
-    filename = f"{str(chapter_num).zfill(chapter_pad)}_{safe_title}.mp3"
+    num = str(chapter_num).zfill(chapter_pad)
+    filename = f"{num}_{safe_title}.mp3" if safe_title else f"{num}.mp3"
     chapter_path = output_dir / filename
     if chapter_path.exists():
         print(f"  Skipping (exists): {filename}")
