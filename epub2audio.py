@@ -32,7 +32,7 @@ def parse_epub(epub_path):
         heading = soup.find(["h1", "h2", "h3"])
         title = heading.get_text(strip=True) if heading else None
         if not title:
-            title = item.get_name().split("/")[-1].replace(".xhtml", "").replace(".html", "")
+            title = text.strip().split("\n")[0][:80]
         chapters.append((title, text))
     return chapters
 
