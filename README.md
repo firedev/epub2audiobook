@@ -68,7 +68,7 @@ output/
     book-name_complete.mp3    # all chapters merged
 ```
 
-Re-running is safe — existing chapter files are skipped.
+Re-running is safe — existing chapters and chunks are skipped. If a network error leaves a partially-converted chapter, re-run the same command and it picks up from the last successful chunk.
 
 ## Voices
 

@@ -21,19 +21,29 @@ def parse_epub(epub_path):
     """Extract chapters from epub in spine order. Returns list of (title, text) tuples."""
     book = epub.read_epub(epub_path, options={"ignore_ncx": True})
     chapters = []
+    pending_text = ""
     for spine_id, _ in book.spine:
         item = book.get_item_with_id(spine_id)
         if not item:
             continue
         soup = BeautifulSoup(item.get_body_content(), "html.parser")
         text = soup.get_text(separator="\n", strip=True)
-        if not text or len(text.strip()) < 50:
+        if not text:
             continue
+        if len(text.strip()) < 50:
+            pending_text += text.strip() + "\n"
+            continue
+        if pending_text:
+            text = pending_text + text
+            pending_text = ""
         heading = soup.find(["h1", "h2", "h3"])
         title = heading.get_text(strip=True) if heading else None
         if not title:
             title = text.strip().split("\n")[0][:80]
         chapters.append((title, text))
+    if pending_text and chapters:
+        title, text = chapters[-1]
+        chapters[-1] = (title, text + "\n" + pending_text.strip())
     return chapters
 
 
@@ -118,7 +128,12 @@ async def convert_chapter(chapter_num, title, text, voice, rate, output_dir, cha
         chunk_paths = []
         for i, chunk in enumerate(chunks):
             tmp_path = tmp_dir / f"ch{str(chapter_num).zfill(chapter_pad)}_chunk{str(i).zfill(chunk_pad)}.mp3"
-            await tts_chunk(chunk, voice, rate, str(tmp_path))
+            if tmp_path.exists() and tmp_path.stat().st_size > 0:
+                print(f"    Chunk {i} exists, skipping")
+            else:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+                await tts_chunk(chunk, voice, rate, str(tmp_path))
             chunk_paths.append(tmp_path)
         concat_mp3s(chunk_paths, chapter_path)
         for p in chunk_paths:
