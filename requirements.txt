@@ -1,4 +1,3 @@
 ebooklib
 beautifulsoup4
 edge-tts
-pydub

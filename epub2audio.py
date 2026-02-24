@@ -3,16 +3,16 @@
 
 import argparse
 import asyncio
-import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
 import edge_tts
-from pydub import AudioSegment
 
 CHUNK_SIZE = 4000
 
@@ -26,10 +26,8 @@ def parse_epub(epub_path):
         text = soup.get_text(separator="\n", strip=True)
         if not text or len(text.strip()) < 50:
             continue
-        title = None
         heading = soup.find(["h1", "h2", "h3"])
-        if heading:
-            title = heading.get_text(strip=True)
+        title = heading.get_text(strip=True) if heading else None
         if not title:
             title = item.get_name().split("/")[-1].replace(".xhtml", "").replace(".html", "")
         chapters.append((title, text))
@@ -66,6 +64,21 @@ def chunk_text(text, max_size=CHUNK_SIZE):
     return chunks
 
 
+def concat_mp3s(input_paths, output_path):
+    """Concatenate MP3 files using ffmpeg."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        for path in input_paths:
+            f.write(f"file '{path}'\n")
+        list_file = f.name
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", str(output_path)],
+            capture_output=True, check=True,
+        )
+    finally:
+        Path(list_file).unlink()
+
+
 async def tts_chunk(text, voice, rate, output_path):
     """Convert a single text chunk to MP3 via Edge TTS."""
     communicate = edge_tts.Communicate(text, voice, rate=rate)
@@ -86,19 +99,16 @@ async def convert_chapter(chapter_num, title, text, voice, rate, output_dir):
     if len(chunks) == 1:
         await tts_chunk(chunks[0], voice, rate, str(chapter_path))
     else:
-        chunk_segments = []
         tmp_dir = output_dir / "_tmp"
         tmp_dir.mkdir(exist_ok=True)
+        chunk_paths = []
         for i, chunk in enumerate(chunks):
             tmp_path = tmp_dir / f"ch{chapter_num:02d}_chunk{i:03d}.mp3"
             await tts_chunk(chunk, voice, rate, str(tmp_path))
-            chunk_segments.append(tmp_path)
-        combined = AudioSegment.empty()
-        for seg_path in chunk_segments:
-            combined += AudioSegment.from_mp3(str(seg_path))
-        combined.export(str(chapter_path), format="mp3")
-        for seg_path in chunk_segments:
-            seg_path.unlink()
+            chunk_paths.append(tmp_path)
+        concat_mp3s(chunk_paths, chapter_path)
+        for p in chunk_paths:
+            p.unlink()
         if not any(tmp_dir.iterdir()):
             tmp_dir.rmdir()
     return chapter_path
@@ -135,11 +145,8 @@ async def main():
             chapter_paths.append(path)
     if not args.no_merge and len(chapter_paths) > 1:
         print(f"\nMerging {len(chapter_paths)} chapters...")
-        combined = AudioSegment.empty()
-        for path in chapter_paths:
-            combined += AudioSegment.from_mp3(str(path))
         merged_path = output_dir / f"{book_name}_complete.mp3"
-        combined.export(str(merged_path), format="mp3")
+        concat_mp3s(chapter_paths, merged_path)
         print(f"Complete audiobook: {merged_path}")
     print("\nDone!")
 

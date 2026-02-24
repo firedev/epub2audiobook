@@ -6,11 +6,26 @@ Designed for Russian-language books but works with any language supported by Edg
 
 ## Install
 
+### macOS
+
 ```bash
+brew install python ffmpeg
 git clone https://github.com/firedev/epub2audiobook.git
 cd epub2audiobook
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-brew install ffmpeg  # macOS — required for merging chapters
+```
+
+### Linux (Debian/Ubuntu)
+
+```bash
+sudo apt install python3 python3-venv ffmpeg
+git clone https://github.com/firedev/epub2audiobook.git
+cd epub2audiobook
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ## Usage
@@ -72,7 +87,7 @@ Works with any Edge TTS voice. For English: `en-US-GuyNeural`, `en-US-JennyNeura
 ## Requirements
 
 - Python 3.10+
-- ffmpeg (for merging chapters)
+- ffmpeg (for concatenating chapter MP3s)
 
 ## License
 
