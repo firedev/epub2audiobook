@@ -21,7 +21,10 @@ def parse_epub(epub_path):
     """Extract chapters from epub in spine order. Returns list of (title, text) tuples."""
     book = epub.read_epub(epub_path, options={"ignore_ncx": True})
     chapters = []
-    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+    for spine_id, _ in book.spine:
+        item = book.get_item_with_id(spine_id)
+        if not item:
+            continue
         soup = BeautifulSoup(item.get_body_content(), "html.parser")
         text = soup.get_text(separator="\n", strip=True)
         if not text or len(text.strip()) < 50:
