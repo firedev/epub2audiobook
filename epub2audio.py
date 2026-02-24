@@ -7,7 +7,9 @@ import re
 import subprocess
 import sys
 import tempfile
+from copy import deepcopy
 from pathlib import Path
+from urllib.parse import unquote
 
 import ebooklib
 from ebooklib import epub
@@ -17,9 +19,123 @@ import edge_tts
 CHUNK_SIZE = 4000
 
 
-def parse_epub(epub_path):
-    """Extract chapters from epub in spine order. Returns list of (title, text) tuples."""
-    book = epub.read_epub(epub_path, options={"ignore_ncx": True})
+def flatten_toc(toc):
+    """Recursively flatten EPUB TOC into ordered list of (title, href) tuples."""
+    entries = []
+    for item in toc:
+        if isinstance(item, tuple):
+            section, children = item
+            if hasattr(section, 'href') and section.href:
+                entries.append((section.title, section.href))
+            entries.extend(flatten_toc(children))
+        elif isinstance(item, epub.Link):
+            entries.append((item.title, item.href))
+        elif hasattr(item, 'href') and item.href:
+            entries.append((item.title, item.href))
+    return entries
+
+
+def split_at_anchors(soup, anchor_ids):
+    """Split soup text at anchor ID boundaries. Returns dict of anchor_id -> text."""
+    soup = deepcopy(soup)
+    found = False
+    for aid in anchor_ids:
+        el = soup.find(id=aid)
+        if el:
+            el.insert_before(soup.new_string(f"\x00SPLIT:{aid}\x00"))
+            found = True
+    if not found:
+        return {None: soup.get_text(separator="\n", strip=True)}
+    full_text = soup.get_text(separator="\n", strip=True)
+    parts = re.split(r"\x00SPLIT:([^\x00]+)\x00", full_text)
+    result = {}
+    if parts[0].strip():
+        result[None] = parts[0].strip()
+    for i in range(1, len(parts), 2):
+        aid = parts[i]
+        text = parts[i + 1].strip() if i + 1 < len(parts) else ""
+        if text:
+            result[aid] = text
+    return result
+
+
+def parse_with_toc(book, toc_entries):
+    """Split chapters using NCX TOC for anchor splitting, spine for reading order."""
+    parsed_toc = []
+    for title, href in toc_entries:
+        href = unquote(href)
+        filename, anchor = href.split('#', 1) if '#' in href else (href, None)
+        parsed_toc.append((title, filename, anchor))
+    items = {}
+    for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
+        name = item.get_name()
+        items[name] = item
+        parts = name.split('/')
+        for i in range(1, len(parts)):
+            subpath = '/'.join(parts[i:])
+            if subpath not in items:
+                items[subpath] = item
+    toc_by_item = {}
+    for title, filename, anchor in parsed_toc:
+        item = items.get(filename)
+        if not item:
+            continue
+        name = item.get_name()
+        if name not in toc_by_item:
+            toc_by_item[name] = []
+        toc_by_item[name].append((title, anchor))
+    raw_chapters = []
+    for spine_id, _ in book.spine:
+        item = book.get_item_with_id(spine_id)
+        if not item:
+            continue
+        soup = BeautifulSoup(item.get_body_content(), "html.parser")
+        name = item.get_name()
+        if name in toc_by_item:
+            entries = toc_by_item[name]
+            anchors = [a for _, a in entries if a]
+            if anchors:
+                sections = split_at_anchors(soup, anchors)
+                if None in sections:
+                    pre_title = sections[None].strip().split("\n")[0][:80]
+                    raw_chapters.append((pre_title, sections[None], False))
+                for title, anchor in entries:
+                    text = sections.get(anchor, "")
+                    if text:
+                        raw_chapters.append((title, text, True))
+            else:
+                text = soup.get_text(separator="\n", strip=True)
+                if text:
+                    raw_chapters.append((entries[0][0], text, True))
+        else:
+            text = soup.get_text(separator="\n", strip=True)
+            if not text:
+                continue
+            heading = soup.find(["h1", "h2", "h3"])
+            title = heading.get_text(strip=True) if heading else text.strip().split("\n")[0][:80]
+            raw_chapters.append((title, text, False))
+    chapters = []
+    pending_text = ""
+    for title, text, from_toc in raw_chapters:
+        if not text:
+            continue
+        if not from_toc and len(text.strip()) < 50:
+            pending_text += text.strip() + "\n"
+            continue
+        if pending_text:
+            if not from_toc:
+                title = pending_text.strip().split("\n")[0][:80]
+            text = pending_text + text
+            pending_text = ""
+        chapters.append((title, text))
+    if pending_text and chapters:
+        t, txt = chapters[-1]
+        chapters[-1] = (t, txt + "\n" + pending_text.strip())
+    return chapters
+
+
+def parse_with_spine(book):
+    """Extract chapters in spine order (fallback when no TOC). Returns list of (title, text) tuples."""
     chapters = []
     pending_text = ""
     for spine_id, _ in book.spine:
@@ -45,6 +161,17 @@ def parse_epub(epub_path):
         title, text = chapters[-1]
         chapters[-1] = (title, text + "\n" + pending_text.strip())
     return chapters
+
+
+def parse_epub(epub_path):
+    """Extract chapters from epub using NCX TOC, falling back to spine order."""
+    book = epub.read_epub(epub_path)
+    toc_entries = flatten_toc(book.toc)
+    if toc_entries:
+        chapters = parse_with_toc(book, toc_entries)
+        if chapters:
+            return chapters
+    return parse_with_spine(book)
 
 
 def chunk_text(text, max_size=CHUNK_SIZE):
@@ -113,9 +240,11 @@ async def convert_chapter(chapter_num, title, text, voice, rate, output_dir, cha
     num = str(chapter_num).zfill(chapter_pad)
     filename = f"{num}_{safe_title}.mp3" if safe_title else f"{num}.mp3"
     chapter_path = output_dir / filename
-    if chapter_path.exists():
+    if chapter_path.exists() and chapter_path.stat().st_size > 0:
         print(f"  Skipping (exists): {filename}")
         return chapter_path
+    if chapter_path.exists():
+        chapter_path.unlink()
     chunks = chunk_text(text)
     if not chunks:
         return None

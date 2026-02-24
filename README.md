@@ -57,6 +57,10 @@ python epub2audio.py book.epub --no-merge
 | `--no-merge` | false | Skip creating combined MP3 |
 | `--rate` | `+0%` | Speech rate (`+10%`, `-5%`, etc.) |
 
+## Chapter splitting
+
+Chapters are split using the EPUB's NCX table of contents, which provides anchor-level granularity. A single HTML file containing multiple chapters (common in FB2-converted EPUBs) is split at each TOC anchor point. Section titles from the TOC (story names, part headings) are preserved as separate short chapters. Falls back to spine-based splitting when no TOC is present.
+
 ## Output
 
 ```
@@ -68,7 +72,7 @@ output/
     book-name_complete.mp3    # all chapters merged
 ```
 
-Re-running is safe — existing chapters and chunks are skipped. If a network error leaves a partially-converted chapter, re-run the same command and it picks up from the last successful chunk.
+Re-running is safe — existing chapters and chunks are skipped (0-byte files from failed runs are re-generated). If a network error interrupts conversion, re-run the same command and it picks up from the last successful chunk.
 
 ## Voices
 
