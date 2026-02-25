@@ -54,7 +54,7 @@ python epub2audio.py book.epub --no-merge
 | `epub_file` | required | Path to .epub file |
 | `--voice` | `ru-RU-DmitryNeural` | Edge TTS voice ID |
 | `--output` | `./output` | Output directory |
-| `--no-merge` | false | Skip creating combined MP3 |
+| `--no-merge` | false | Keep individual chapter files only, don't concatenate into one MP3 |
 | `--rate` | `+0%` | Speech rate (`+10%`, `-5%`, etc.) |
 
 ## Chapter splitting

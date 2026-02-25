@@ -238,7 +238,7 @@ async def convert_chapter(chapter_num, title, text, voice, rate, output_dir, cha
     """Convert a full chapter to MP3, chunking if needed."""
     safe_title = re.sub(r"[^\w\s-]", "", title)[:50].strip()
     num = str(chapter_num).zfill(chapter_pad)
-    filename = f"{num}_{safe_title}.mp3" if safe_title else f"{num}.mp3"
+    filename = f"{num} {safe_title}.mp3" if safe_title else f"{num}.mp3"
     chapter_path = output_dir / filename
     if chapter_path.exists() and chapter_path.stat().st_size > 0:
         print(f"  Skipping (exists): {filename}")
